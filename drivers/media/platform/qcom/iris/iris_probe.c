@@ -14,6 +14,7 @@
 
 #include "iris_core.h"
 #include "iris_ctrls.h"
+#include "iris_firmware.h"
 #include "iris_vidc.h"
 
 static int iris_init_icc(struct iris_core *core)
@@ -207,6 +208,8 @@ static void iris_remove(struct platform_device *pdev)
 
 	v4l2_device_unregister(&core->v4l2_dev);
 
+	iris_fw_deinit(core);
+
 	mutex_destroy(&core->lock);
 }
 
@@ -273,9 +276,13 @@ static int iris_probe(struct platform_device *pdev)
 
 	iris_session_init_caps(core);
 
-	ret = v4l2_device_register(dev, &core->v4l2_dev);
+	ret = iris_fw_init(core);
 	if (ret)
 		return ret;
+
+	ret = v4l2_device_register(dev, &core->v4l2_dev);
+	if (ret)
+		goto err_fw_deinit;
 
 	ret = iris_register_video_device(core, DECODER);
 	if (ret)
@@ -310,6 +317,8 @@ err_vdev_unreg_dec:
 	video_unregister_device(core->vdev_dec);
 err_v4l2_unreg:
 	v4l2_device_unregister(&core->v4l2_dev);
+err_fw_deinit:
+	iris_fw_deinit(core);
 
 	return ret;
 }
