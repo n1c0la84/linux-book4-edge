@@ -365,7 +365,7 @@
 	pinctrl-0 = <&wsa_swr_active>, <&spkr_01_sd_n_active>;
 	pinctrl-names = "default";
 
-	/* The NP940XMA has one WSA8835 on each speaker bus. */
+	/* Address 2; the 14" (NP940XMA) also has a tweeter at address 1. */
 	left_spkr: speaker@0,2 {
 		compatible = "sdw10217020200";
 		reg = <0 2>;
