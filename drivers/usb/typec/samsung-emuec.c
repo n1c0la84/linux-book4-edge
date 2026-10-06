@@ -17,6 +17,7 @@
 #include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/power_supply.h>
+#include <linux/suspend.h>
 #include <linux/slab.h>
 #include <linux/unaligned.h>
 #include <linux/usb/pd.h>
@@ -105,7 +106,12 @@ struct samsung_emuec {
 	u8 dp_pin;
 	u8 pd_attempts;
 	u8 caps_retries;
+	struct notifier_block pm_nb;
+	bool quiesced;
 };
+
+static int samsung_emuec_pm_notify(struct notifier_block *nb,
+				   unsigned long action, void *data);
 
 static int samsung_emuec_read(struct samsung_emuec *pdic, u16 reg,
 			      void *buf, size_t len)
@@ -765,6 +771,10 @@ static void samsung_emuec_sync(struct work_struct *work)
 
 	guard(mutex)(&pdic->lock);
 
+	/* System sleep in progress: leave the port as it is, resync afterwards. */
+	if (pdic->quiesced)
+		return;
+
 	ret = samsung_emuec_read(pdic, S2MM006_REG_BC_STATUS, &bc, sizeof(bc));
 	if (ret)
 		return;
@@ -1063,6 +1073,11 @@ static int samsung_emuec_probe(struct i2c_client *client)
 	if (ret)
 		goto err_pd;
 
+	pdic->pm_nb.notifier_call = samsung_emuec_pm_notify;
+	ret = register_pm_notifier(&pdic->pm_nb);
+	if (ret)
+		goto err_pd;
+
 	mod_delayed_work(system_dfl_wq, &pdic->work, 0);
 	return 0;
 
@@ -1082,9 +1097,51 @@ err_node:
 	return ret;
 }
 
+/*
+ * EXPERIMENT (book4-edge-linux, 0004): quiesce event handling across system
+ * sleep without detaching. Unplugging a charger during s2idle resets the
+ * machine on resume, but not with the charging port's driver unbound, which
+ * both stops event handling and detaches the port (USB role, orientation,
+ * mux/retimer, partner). This keeps the port state and only stops the
+ * interrupt and the sync/HPD work from before any device suspends until all
+ * devices have resumed, then resyncs once.
+ */
+static int samsung_emuec_pm_notify(struct notifier_block *nb,
+				   unsigned long action, void *data)
+{
+	struct samsung_emuec *pdic = container_of(nb, struct samsung_emuec, pm_nb);
+	struct device *dev = &pdic->client->dev;
+
+	switch (action) {
+	case PM_SUSPEND_PREPARE:
+		scoped_guard(mutex, &pdic->lock)
+			pdic->quiesced = true;
+		disable_irq(pdic->client->irq);	/* waits for a running handler */
+		cancel_delayed_work_sync(&pdic->work);
+		flush_work(&pdic->hpd_work);
+		dev_info(dev, "pm: quiesced (attached=%d)\n", pdic->attached);
+		break;
+	case PM_POST_SUSPEND:
+		if (!pdic->quiesced)
+			break;
+		scoped_guard(mutex, &pdic->lock)
+			pdic->quiesced = false;
+		enable_irq(pdic->client->irq);
+		mod_delayed_work(system_dfl_wq, &pdic->work, 0);
+		dev_info(dev, "pm: resumed, resync\n");
+		break;
+	}
+
+	return NOTIFY_DONE;
+}
+
 static void samsung_emuec_remove(struct i2c_client *client)
 {
 	struct samsung_emuec *pdic = i2c_get_clientdata(client);
+
+	unregister_pm_notifier(&pdic->pm_nb);
+	if (pdic->quiesced)
+		enable_irq(client->irq);
 
 	devm_free_irq(&client->dev, client->irq, pdic);
 	cancel_delayed_work_sync(&pdic->work);
