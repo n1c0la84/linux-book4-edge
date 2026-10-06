@@ -103,7 +103,7 @@ struct samsung_emuec {
 	bool dp_enter_requested;
 	bool dp_hpd;
 	u8 dp_pin;
-	bool pd_attempted;
+	u8 pd_attempts;
 	u8 caps_retries;
 };
 
@@ -267,7 +267,7 @@ static void samsung_emuec_detach(struct samsung_emuec *pdic)
 		schedule_work(&pdic->hpd_work);
 	}
 	pdic->dp_pin = 0;
-	pdic->pd_attempted = false;
+	pdic->pd_attempts = 0;
 	pdic->usb_mode = USB_MODE_NONE;
 	pdic->caps_retries = 0;
 	pdic->attempted_mode = SAMSUNG_EMUEC_MODE_NONE;
@@ -447,12 +447,22 @@ static void samsung_emuec_update_pd(struct samsung_emuec *pdic)
 		rdo_op_current(active) > pdo_max_current(pdos[actual - 1]) ||
 		pdo_fixed_voltage(pdos[actual - 1]) *
 		rdo_op_current(active) < mv * ma) {
-		if (!pdic->pd_attempted) {
-			pdic->pd_attempted = true;
+		/*
+		 * On a hot plug the request can arrive before the PD controller
+		 * has settled and time out; it succeeds when repeated a little
+		 * later, so retry a few times instead of staying at 5 V.
+		 */
+		if (pdic->pd_attempts < 5) {
+			pdic->pd_attempts++;
 			ret = samsung_emuec_request_pdo(pdic, requested);
-			if (ret)
+			if (ret) {
 				dev_warn(&pdic->client->dev,
-						"PD contract request failed: %d\n", ret);
+					 "PD contract request %u failed: %d\n",
+					 pdic->pd_attempts, ret);
+				if (pdic->pd_attempts < 5)
+					mod_delayed_work(system_dfl_wq, &pdic->work,
+							 msecs_to_jiffies(1000));
+			}
 			ret = samsung_emuec_active_rdo(pdic, &active);
 			if (ret)
 				return;
