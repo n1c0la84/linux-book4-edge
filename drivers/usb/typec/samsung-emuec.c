@@ -108,6 +108,7 @@ struct samsung_emuec {
 	u8 caps_retries;
 	struct notifier_block pm_nb;
 	bool quiesced;
+	bool wake_armed;
 };
 
 static int samsung_emuec_pm_notify(struct notifier_block *nb,
@@ -1119,11 +1120,26 @@ static int samsung_emuec_pm_notify(struct notifier_block *nb,
 		disable_irq(pdic->client->irq);	/* waits for a running handler */
 		cancel_delayed_work_sync(&pdic->work);
 		flush_work(&pdic->hpd_work);
-		dev_info(dev, "pm: quiesced (attached=%d)\n", pdic->attached);
+		/*
+		 * A charger plugged into an empty port during sleep is otherwise
+		 * negotiated only after the next resume: wake for it. The wake
+		 * stays off on an attached port, so an unplug during sleep is
+		 * still left alone until resume (the reset this quiescing fixes).
+		 * The masked interrupt still wakes: the msm GPIO irqchip enables
+		 * wake-armed lines on suspend.
+		 */
+		if (!pdic->attached && !enable_irq_wake(pdic->client->irq))
+			pdic->wake_armed = true;
+		dev_info(dev, "pm: quiesced (attached=%d wake=%d)\n",
+			 pdic->attached, pdic->wake_armed);
 		break;
 	case PM_POST_SUSPEND:
 		if (!pdic->quiesced)
 			break;
+		if (pdic->wake_armed) {
+			disable_irq_wake(pdic->client->irq);
+			pdic->wake_armed = false;
+		}
 		scoped_guard(mutex, &pdic->lock)
 			pdic->quiesced = false;
 		enable_irq(pdic->client->irq);
@@ -1140,6 +1156,8 @@ static void samsung_emuec_remove(struct i2c_client *client)
 	struct samsung_emuec *pdic = i2c_get_clientdata(client);
 
 	unregister_pm_notifier(&pdic->pm_nb);
+	if (pdic->wake_armed)
+		disable_irq_wake(client->irq);
 	if (pdic->quiesced)
 		enable_irq(client->irq);
 
