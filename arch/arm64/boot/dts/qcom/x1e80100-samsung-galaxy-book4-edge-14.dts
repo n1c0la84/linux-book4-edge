@@ -230,3 +230,11 @@
 &right_spkr {
 	sound-name-prefix = "SpkrLeft";
 };
+
+/*
+ * Only the eUSB2 repeater at 0x4f (usb_2, the fingerprint reader) exists on
+ * this model; the firmware describes nothing at 0x43.
+ */
+&eusb5_repeater {
+	status = "disabled";
+};
