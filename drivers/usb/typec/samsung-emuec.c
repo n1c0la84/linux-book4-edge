@@ -36,6 +36,7 @@
 #define S2MM006_IRQ_LAST		0x07
 #define S2MM006_REG_BC_STATUS		0x0e
 #define S2MM006_REG_CC_STATUS		0x11
+#define S2MM006_REG_CC_PIN		0x12
 #define S2MM006_REG_PD_STATUS2		0x14
 #define S2MM006_REG_PD_STATUS3		0x1a
 #define S2MM006_REG_SWITCH_STATUS	0x1c
@@ -757,7 +758,7 @@ static void samsung_emuec_sync(struct work_struct *work)
 	struct samsung_emuec *pdic = container_of(to_delayed_work(work),
 						    struct samsung_emuec, work);
 	struct typec_mux_state mux_state = { .mode = TYPEC_STATE_USB };
-	u8 command, status_bit, bc, cc, pd, sw, enter_usb;
+	u8 command, status_bit, bc, cc, cc_pin, pd, sw, enter_usb;
 	struct typec_partner_desc partner_desc = {
 		.accessory = TYPEC_ACCESSORY_NONE,
 		.usb_capability = 0,
@@ -767,7 +768,7 @@ static void samsung_emuec_sync(struct work_struct *work)
 	enum typec_role power_role;
 	enum typec_data_role data_role;
 	enum usb_role usb_role;
-	bool vbus_present, source_path_attached, consumer_path_active;
+	bool vbus_present, source_path_attached, consumer_path_active, attached;
 	int ret;
 
 	guard(mutex)(&pdic->lock);
@@ -782,6 +783,9 @@ static void samsung_emuec_sync(struct work_struct *work)
 	ret = samsung_emuec_read(pdic, S2MM006_REG_CC_STATUS, &cc, sizeof(cc));
 	if (ret)
 		return;
+	ret = samsung_emuec_read(pdic, S2MM006_REG_CC_PIN, &cc_pin, sizeof(cc_pin));
+	if (ret)
+		return;
 	ret = samsung_emuec_read(pdic, S2MM006_REG_PD_STATUS2, &pd, sizeof(pd));
 	if (ret)
 		return;
@@ -793,16 +797,23 @@ static void samsung_emuec_sync(struct work_struct *work)
 	if (ret)
 		return;
 
-	orientation = (cc >> 4) == 1 ? TYPEC_ORIENTATION_NORMAL :
-		      (cc >> 4) == 2 ? TYPEC_ORIENTATION_REVERSE :
-					  TYPEC_ORIENTATION_NONE;
+	/*
+	 * CC_STATUS bits 7:4 give the attach type (1: attached as sink,
+	 * 2: as source), not the orientation: they read the same with the plug
+	 * either way round. The orientation is the CC pin in CC_PIN bits 1:0
+	 * (1: CC1, 2: CC2); bit 2 is set as source.
+	 */
+	attached = (cc >> 4) == 1 || (cc >> 4) == 2;
+	orientation = (cc_pin & 0x3) == 1 ? TYPEC_ORIENTATION_NORMAL :
+		      (cc_pin & 0x3) == 2 ? TYPEC_ORIENTATION_REVERSE :
+					     TYPEC_ORIENTATION_NONE;
 	power_role = pd & BIT(3) ? TYPEC_SOURCE : TYPEC_SINK;
 	data_role = pd & BIT(2) ? TYPEC_HOST : TYPEC_DEVICE;
 	vbus_present = bc & BIT(0);
 	source_path_attached = bc & BIT(4);
 	consumer_path_active = sw & BIT(1);
 
-	if (orientation == TYPEC_ORIENTATION_NONE) {
+	if (!attached) {
 		samsung_emuec_detach(pdic);
 		return;
 	}
