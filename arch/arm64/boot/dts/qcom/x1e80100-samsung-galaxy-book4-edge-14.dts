@@ -83,9 +83,9 @@
 };
 
 &{/sound} {
-	audio-routing = "SpkrLeft IN", "WSA WSA_SPK1 OUT",
+	audio-routing = "SpkrRight IN", "WSA WSA_SPK1 OUT",
 			"TweeterRight IN", "WSA WSA_SPK2 OUT",
-			"SpkrRight IN", "WSA2 WSA_SPK1 OUT",
+			"SpkrLeft IN", "WSA2 WSA_SPK1 OUT",
 			"TweeterLeft IN", "WSA2 WSA_SPK2 OUT",
 			"IN1_HPHL", "HPHL_OUT",
 			"IN2_HPHR", "HPHR_OUT",
@@ -215,4 +215,18 @@
 	phys = <&eusb6_repeater>;
 
 	status = "okay";
+};
+
+/*
+ * The woofer names in the shared dtsi are swapped on this model: the
+ * amplifier on SoundWire 0 (WSA macro) drives the right woofer, the one on
+ * SoundWire 3 (WSA2 macro) the left woofer, next to the tweeters of the same
+ * side. Name them by side, like the tweeters. The labels stay as in the dtsi.
+ */
+&left_spkr {
+	sound-name-prefix = "SpkrRight";
+};
+
+&right_spkr {
+	sound-name-prefix = "SpkrLeft";
 };
