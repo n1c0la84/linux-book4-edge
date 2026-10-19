@@ -725,6 +725,8 @@ static int qcom_pdc_probe(struct platform_device *pdev, struct device_node *pare
 			pdc->unmask_gpio = pdc_unmask_gpio_cfg;
 			pdc->clear_gpio = pdc_clear_gpio_cfg;
 		}
+		pr_info("qcom-pdc: x1e: %s mode (SCM pass-through write: %d)\n",
+			ret ? "secondary (latching)" : "pass-through", ret);
 	}
 
 	irq_param = pdc_reg_read(pdc->regs->irq_param_reg, 0);
