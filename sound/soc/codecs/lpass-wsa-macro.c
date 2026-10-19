@@ -2859,6 +2859,8 @@ static int wsa_macro_runtime_suspend(struct device *dev)
 	clk_disable_unprepare(wsa->fsgen);
 	clk_disable_unprepare(wsa->npl);
 	clk_disable_unprepare(wsa->mclk);
+	clk_disable_unprepare(wsa->dcodec);
+	clk_disable_unprepare(wsa->macro);
 
 	return 0;
 }
@@ -2868,10 +2870,22 @@ static int wsa_macro_runtime_resume(struct device *dev)
 	struct wsa_macro *wsa = dev_get_drvdata(dev);
 	int ret;
 
+	ret = clk_prepare_enable(wsa->macro);
+	if (ret) {
+		dev_err(dev, "unable to prepare macro\n");
+		return ret;
+	}
+
+	ret = clk_prepare_enable(wsa->dcodec);
+	if (ret) {
+		dev_err(dev, "unable to prepare dcodec\n");
+		goto err_dcodec;
+	}
+
 	ret = clk_prepare_enable(wsa->mclk);
 	if (ret) {
 		dev_err(dev, "unable to prepare mclk\n");
-		return ret;
+		goto err_mclk;
 	}
 
 	ret = clk_prepare_enable(wsa->npl);
@@ -2894,6 +2908,10 @@ err_fsgen:
 	clk_disable_unprepare(wsa->npl);
 err_npl:
 	clk_disable_unprepare(wsa->mclk);
+err_mclk:
+	clk_disable_unprepare(wsa->dcodec);
+err_dcodec:
+	clk_disable_unprepare(wsa->macro);
 
 	return ret;
 }
