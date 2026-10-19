@@ -178,7 +178,6 @@
 		startup-delay-us = <1000>;
 		regulator-enable-ramp-delay = <1000>;
 
-		regulator-always-on;
 		regulator-boot-on;
 	};
 
@@ -200,7 +199,6 @@
 
 		vin-supply = <&vreg_octa_vdd>;
 
-		regulator-always-on;
 		regulator-boot-on;
 	};
 
