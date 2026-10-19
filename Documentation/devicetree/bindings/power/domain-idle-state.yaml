@@ -59,6 +59,14 @@ patternProperties:
         description:
           A string used as a descriptive name for the idle state.
 
+      system-sleep-only:
+        type: boolean
+        description:
+          The state may only be entered as part of system-wide suspend
+          (e.g. s2idle), never from runtime idle. For platforms whose
+          firmware only supports the state, or only reaches it reliably,
+          when the system is suspended.
+
     required:
       - compatible
       - entry-latency-us
