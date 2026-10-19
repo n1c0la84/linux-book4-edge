@@ -59,7 +59,6 @@
 
 		vin-supply = <&vreg_display_vdd>;
 
-		regulator-always-on;
 		regulator-boot-on;
 	};
 
