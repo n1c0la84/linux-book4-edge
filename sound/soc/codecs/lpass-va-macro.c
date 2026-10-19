@@ -1724,6 +1724,8 @@ static int va_macro_runtime_suspend(struct device *dev)
 		clk_disable_unprepare(va->npl);
 
 	clk_disable_unprepare(va->mclk);
+	clk_disable_unprepare(va->dcodec);
+	clk_disable_unprepare(va->macro);
 
 	return 0;
 }
@@ -1733,18 +1735,29 @@ static int va_macro_runtime_resume(struct device *dev)
 	struct va_macro *va = dev_get_drvdata(dev);
 	int ret;
 
+	ret = clk_prepare_enable(va->macro);
+	if (ret) {
+		dev_err(va->dev, "unable to prepare macro\n");
+		return ret;
+	}
+
+	ret = clk_prepare_enable(va->dcodec);
+	if (ret) {
+		dev_err(va->dev, "unable to prepare dcodec\n");
+		goto err_dcodec;
+	}
+
 	ret = clk_prepare_enable(va->mclk);
 	if (ret) {
 		dev_err(va->dev, "unable to prepare mclk\n");
-		return ret;
+		goto err_mclk;
 	}
 
 	if (va->has_npl_clk) {
 		ret = clk_prepare_enable(va->npl);
 		if (ret) {
-			clk_disable_unprepare(va->mclk);
 			dev_err(va->dev, "unable to prepare npl\n");
-			return ret;
+			goto err_npl;
 		}
 	}
 
@@ -1752,6 +1765,14 @@ static int va_macro_runtime_resume(struct device *dev)
 	regcache_sync(va->regmap);
 
 	return 0;
+
+err_npl:
+	clk_disable_unprepare(va->mclk);
+err_mclk:
+	clk_disable_unprepare(va->dcodec);
+err_dcodec:
+	clk_disable_unprepare(va->macro);
+	return ret;
 }
 
 
