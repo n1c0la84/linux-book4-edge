@@ -184,6 +184,7 @@ struct genpd_power_state {
 	u64 above;
 	u64 below;
 	u64 usage_s2idle;
+	bool system_sleep_only;
 	struct fwnode_handle *fwnode;
 	u64 idle_time;
 	void *data;
