@@ -289,6 +289,14 @@ static int scmi_cpufreq_init(struct cpufreq_policy *policy)
 
 	policy->driver_data = priv;
 	policy->freq_table = freq_table;
+	/*
+	 * Create the policy with its boost frequencies counted, so that
+	 * cpuinfo.max_freq, and with it the capacity reference frequency
+	 * that arch_topology records once at policy creation, include them.
+	 * Otherwise schedutil, which never requests more than that reference,
+	 * cannot reach a boost frequency even after boost is enabled.
+	 */
+	policy->boost_enabled = true;
 
 	/* SCMI allows DVFS request for any domain from any CPU */
 	policy->dvfs_possible_from_any_cpu = true;
@@ -393,6 +401,7 @@ static struct cpufreq_driver scmi_cpufreq_driver = {
 	.exit	= scmi_cpufreq_exit,
 	.register_em	= scmi_cpufreq_register_em,
 	.set_boost	= cpufreq_boost_set_sw,
+	.boost_enabled	= true,
 };
 
 static bool scmi_dev_used_by_cpus(struct device *scmi_dev)
