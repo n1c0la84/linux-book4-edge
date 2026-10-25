@@ -58,6 +58,29 @@
 #define FASTRPC_MAX_DSP_ATTRIBUTES (256)
 #define FASTRPC_MAX_DSP_ATTRIBUTES_LEN (sizeof(u32) * FASTRPC_MAX_DSP_ATTRIBUTES)
 
+/*
+ * dspsignal (from Qualcomm's dsp-kernel): per-process 32-bit signals between
+ * a user process and its DSP user PD. Both directions are an 8-byte message
+ * (client_id << 32 | signal_id) on the FastRPC rpmsg channel. Newer CDSP
+ * images (X1E CDSP.HT.2.9.c1) wake their dspqueue "Queue Monitor" only
+ * through these.
+ */
+#define FASTRPC_DSPSIGNAL_NUM_SIGNALS	1024
+#define FASTRPC_DSPSIGNAL_GROUP_SIZE	256
+#define FASTRPC_DSPSIGNAL_GROUPS	(FASTRPC_DSPSIGNAL_NUM_SIGNALS / FASTRPC_DSPSIGNAL_GROUP_SIZE)
+
+enum fastrpc_dspsignal_state {
+	DSPSIGNAL_STATE_UNUSED = 0,
+	DSPSIGNAL_STATE_PENDING,
+	DSPSIGNAL_STATE_SIGNALED,
+	DSPSIGNAL_STATE_CANCELED,
+};
+
+struct fastrpc_dspsignal {
+	struct completion comp;
+	int state;
+};
+
 /* Retrives number of input buffers from the scalars parameter */
 #define REMOTE_SCALARS_INBUFS(sc)	(((sc) >> 16) & 0x0ff)
 
@@ -312,6 +335,10 @@ struct fastrpc_user {
 	struct mutex mutex;
 	/* Reference count */
 	struct kref refcount;
+	/* dspsignal state; groups allocated on first use */
+	spinlock_t dspsignals_lock;
+	struct mutex signal_create_mutex;
+	struct fastrpc_dspsignal *signal_groups[FASTRPC_DSPSIGNAL_GROUPS];
 };
 
 /* Extract SMMU PA from consolidated IOVA */
@@ -532,6 +559,9 @@ static void fastrpc_user_free(struct kref *ref)
 	}
 
 	fastrpc_channel_ctx_put(fl->cctx);
+	for (int i = 0; i < FASTRPC_DSPSIGNAL_GROUPS; i++)
+		kfree(fl->signal_groups[i]);
+	mutex_destroy(&fl->signal_create_mutex);
 	mutex_destroy(&fl->mutex);
 	kfree(fl);
 }
@@ -1664,6 +1694,8 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
 	filp->private_data = fl;
 	spin_lock_init(&fl->lock);
 	mutex_init(&fl->mutex);
+	spin_lock_init(&fl->dspsignals_lock);
+	mutex_init(&fl->signal_create_mutex);
 	INIT_LIST_HEAD(&fl->pending);
 	INIT_LIST_HEAD(&fl->maps);
 	INIT_LIST_HEAD(&fl->mmaps);
@@ -1674,6 +1706,7 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
 	fl->sctx = fastrpc_session_alloc(fl);
 	if (!fl->sctx) {
 		dev_err(&cctx->rpdev->dev, "No session available\n");
+		mutex_destroy(&fl->signal_create_mutex);
 		mutex_destroy(&fl->mutex);
 		kfree(fl);
 		fastrpc_channel_ctx_put(cctx);
@@ -2165,6 +2198,185 @@ err_invoke:
 	return err;
 }
 
+/* Under fl->dspsignals_lock. NULL if the signal was never created. */
+static struct fastrpc_dspsignal *fastrpc_dspsignal_find(struct fastrpc_user *fl, u32 id)
+{
+	struct fastrpc_dspsignal *group = fl->signal_groups[id / FASTRPC_DSPSIGNAL_GROUP_SIZE];
+
+	return group ? &group[id % FASTRPC_DSPSIGNAL_GROUP_SIZE] : NULL;
+}
+
+static int fastrpc_dspsignal_signal(struct fastrpc_user *fl, u32 id)
+{
+	u64 msg = ((u64)fl->client_id << 32) | id;
+
+	return rpmsg_send(fl->cctx->rpdev->ept, &msg, sizeof(msg));
+}
+
+static int fastrpc_dspsignal_wait(struct fastrpc_user *fl, u32 id, u32 timeout_usec)
+{
+	struct fastrpc_dspsignal *s;
+	unsigned long flags;
+	long ret;
+	int err = 0;
+
+	spin_lock_irqsave(&fl->dspsignals_lock, flags);
+	s = fastrpc_dspsignal_find(fl, id);
+	if (!s || s->state == DSPSIGNAL_STATE_UNUSED) {
+		spin_unlock_irqrestore(&fl->dspsignals_lock, flags);
+		return -ENOENT;
+	}
+	if (s->state == DSPSIGNAL_STATE_SIGNALED) {
+		/* arrived before the wait: consume it */
+		s->state = DSPSIGNAL_STATE_PENDING;
+		try_wait_for_completion(&s->comp);
+		spin_unlock_irqrestore(&fl->dspsignals_lock, flags);
+		return 0;
+	}
+	if (s->state == DSPSIGNAL_STATE_CANCELED) {
+		spin_unlock_irqrestore(&fl->dspsignals_lock, flags);
+		return -EINTR;
+	}
+	spin_unlock_irqrestore(&fl->dspsignals_lock, flags);
+
+	if (timeout_usec != FASTRPC_DSPSIGNAL_TIMEOUT_NONE) {
+		ret = wait_for_completion_interruptible_timeout(&s->comp,
+								usecs_to_jiffies(timeout_usec));
+		if (ret == 0)
+			return -ETIMEDOUT;
+	} else {
+		ret = wait_for_completion_interruptible(&s->comp);
+	}
+	if (ret < 0)
+		return ret;
+
+	spin_lock_irqsave(&fl->dspsignals_lock, flags);
+	if (s->state == DSPSIGNAL_STATE_SIGNALED)
+		s->state = DSPSIGNAL_STATE_PENDING;
+	else if (s->state == DSPSIGNAL_STATE_CANCELED || s->state == DSPSIGNAL_STATE_UNUSED)
+		err = -EINTR;
+	spin_unlock_irqrestore(&fl->dspsignals_lock, flags);
+
+	return err;
+}
+
+static int fastrpc_dspsignal_create(struct fastrpc_user *fl, u32 id)
+{
+	struct fastrpc_dspsignal *group, *s;
+	unsigned long flags;
+	int i;
+
+	mutex_lock(&fl->signal_create_mutex);
+	group = fl->signal_groups[id / FASTRPC_DSPSIGNAL_GROUP_SIZE];
+	if (!group) {
+		group = kcalloc(FASTRPC_DSPSIGNAL_GROUP_SIZE, sizeof(*group), GFP_KERNEL);
+		if (!group) {
+			mutex_unlock(&fl->signal_create_mutex);
+			return -ENOMEM;
+		}
+		for (i = 0; i < FASTRPC_DSPSIGNAL_GROUP_SIZE; i++)
+			init_completion(&group[i].comp);
+		spin_lock_irqsave(&fl->dspsignals_lock, flags);
+		fl->signal_groups[id / FASTRPC_DSPSIGNAL_GROUP_SIZE] = group;
+		spin_unlock_irqrestore(&fl->dspsignals_lock, flags);
+	}
+
+	spin_lock_irqsave(&fl->dspsignals_lock, flags);
+	s = &group[id % FASTRPC_DSPSIGNAL_GROUP_SIZE];
+	if (s->state != DSPSIGNAL_STATE_UNUSED) {
+		spin_unlock_irqrestore(&fl->dspsignals_lock, flags);
+		mutex_unlock(&fl->signal_create_mutex);
+		return -EBUSY;
+	}
+	s->state = DSPSIGNAL_STATE_PENDING;
+	reinit_completion(&s->comp);
+	spin_unlock_irqrestore(&fl->dspsignals_lock, flags);
+	mutex_unlock(&fl->signal_create_mutex);
+
+	return 0;
+}
+
+/* DESTROY (new state UNUSED) and CANCEL_WAIT (CANCELED) wake all waiters */
+static int fastrpc_dspsignal_release(struct fastrpc_user *fl, u32 id, int state)
+{
+	struct fastrpc_dspsignal *s;
+	unsigned long flags;
+
+	spin_lock_irqsave(&fl->dspsignals_lock, flags);
+	s = fastrpc_dspsignal_find(fl, id);
+	if (!s || s->state == DSPSIGNAL_STATE_UNUSED) {
+		spin_unlock_irqrestore(&fl->dspsignals_lock, flags);
+		return -ENOENT;
+	}
+	if (s->state != state) {
+		s->state = state;
+		complete_all(&s->comp);
+	}
+	spin_unlock_irqrestore(&fl->dspsignals_lock, flags);
+
+	return 0;
+}
+
+static int fastrpc_dspsignal_ioctl(struct fastrpc_user *fl, char __user *argp)
+{
+	struct fastrpc_ioctl_dspsignal sig;
+
+	if (copy_from_user(&sig, argp, sizeof(sig)))
+		return -EFAULT;
+	if (sig.signal_id >= FASTRPC_DSPSIGNAL_NUM_SIGNALS)
+		return -EINVAL;
+
+	switch (sig.req) {
+	case FASTRPC_DSPSIGNAL_SIGNAL:
+		return fastrpc_dspsignal_signal(fl, sig.signal_id);
+	case FASTRPC_DSPSIGNAL_WAIT:
+		return fastrpc_dspsignal_wait(fl, sig.signal_id, sig.timeout_usec);
+	case FASTRPC_DSPSIGNAL_CREATE:
+		return fastrpc_dspsignal_create(fl, sig.signal_id);
+	case FASTRPC_DSPSIGNAL_DESTROY:
+		return fastrpc_dspsignal_release(fl, sig.signal_id, DSPSIGNAL_STATE_UNUSED);
+	case FASTRPC_DSPSIGNAL_CANCEL_WAIT:
+		return fastrpc_dspsignal_release(fl, sig.signal_id, DSPSIGNAL_STATE_CANCELED);
+	default:
+		return -EINVAL;
+	}
+}
+
+/* An 8-byte message from the DSP: (client_id << 32) | signal_id */
+static void fastrpc_dspsignal_receive(struct fastrpc_channel_ctx *cctx, u64 msg)
+{
+	u32 client_id = msg >> 32, id = msg & 0xffffffff;
+	struct fastrpc_dspsignal *s = NULL;
+	struct fastrpc_user *fl;
+	unsigned long flags;
+
+	if (id >= FASTRPC_DSPSIGNAL_NUM_SIGNALS)
+		return;
+
+	/* cctx->lock keeps fl on the list (release unlinks it under it) */
+	spin_lock_irqsave(&cctx->lock, flags);
+	list_for_each_entry(fl, &cctx->users, user) {
+		if (fl->client_id != client_id)
+			continue;
+		spin_lock(&fl->dspsignals_lock);
+		s = fastrpc_dspsignal_find(fl, id);
+		if (s && (s->state == DSPSIGNAL_STATE_PENDING ||
+			  s->state == DSPSIGNAL_STATE_SIGNALED)) {
+			s->state = DSPSIGNAL_STATE_SIGNALED;
+			complete(&s->comp);
+		} else {
+			s = NULL;
+		}
+		spin_unlock(&fl->dspsignals_lock);
+		break;
+	}
+	spin_unlock_irqrestore(&cctx->lock, flags);
+
+	if (!s)
+		dev_dbg(&cctx->rpdev->dev, "dspsignal %u for client %u: no waiter\n",
+			id, client_id);
+}
+
 static long fastrpc_device_ioctl(struct file *file, unsigned int cmd,
 				 unsigned long arg)
 {
@@ -2205,6 +2417,9 @@ static long fastrpc_device_ioctl(struct file *file, unsigned int cmd,
 		break;
 	case FASTRPC_IOCTL_GET_DSP_INFO:
 		err = fastrpc_get_dsp_info(fl, argp);
+		break;
+	case FASTRPC_IOCTL_DSPSIGNAL:
+		err = fastrpc_dspsignal_ioctl(fl, argp);
 		break;
 	default:
 		err = -ENOTTY;
@@ -2541,11 +2756,16 @@ static int fastrpc_rpmsg_callback(struct rpmsg_device *rpdev, void *data,
 	unsigned long flags;
 	unsigned long ctxid;
 
-	if (len < sizeof(*rsp))
-		return -EINVAL;
-
 	if (!cctx)
 		return -ENODEV;
+
+	if (len == sizeof(u64)) {
+		fastrpc_dspsignal_receive(cctx, *(u64 *)data);
+		return 0;
+	}
+
+	if (len < sizeof(*rsp))
+		return -EINVAL;
 
 	ctxid = ((rsp->ctx & FASTRPC_CTXID_MASK) >> 4);
 

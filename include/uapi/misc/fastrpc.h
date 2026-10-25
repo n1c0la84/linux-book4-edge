@@ -17,6 +17,11 @@
 #define FASTRPC_IOCTL_MEM_MAP		_IOWR('R', 10, struct fastrpc_mem_map)
 #define FASTRPC_IOCTL_MEM_UNMAP		_IOWR('R', 11, struct fastrpc_mem_unmap)
 #define FASTRPC_IOCTL_GET_DSP_INFO	_IOWR('R', 13, struct fastrpc_ioctl_capability)
+/*
+ * dspsignal, ported from Qualcomm's dsp-kernel (book4, local): not an
+ * upstream ABI, hence the number far from the upstream ones.
+ */
+#define FASTRPC_IOCTL_DSPSIGNAL		_IOWR('R', 0x60, struct fastrpc_ioctl_dspsignal)
 
 /**
  * enum fastrpc_map_flags - control flags for mapping memory on DSP user process
@@ -138,6 +143,23 @@ struct fastrpc_ioctl_capability {
 	__u32 attribute_id;
 	__u32 capability;   /* dsp capability */
 	__u32 reserved[4];
+};
+
+enum fastrpc_dspsignal_req {
+	FASTRPC_DSPSIGNAL_SIGNAL = 1,
+	FASTRPC_DSPSIGNAL_WAIT = 2,
+	FASTRPC_DSPSIGNAL_CREATE = 3,
+	FASTRPC_DSPSIGNAL_DESTROY = 4,
+	FASTRPC_DSPSIGNAL_CANCEL_WAIT = 5,
+};
+
+#define FASTRPC_DSPSIGNAL_TIMEOUT_NONE	0xffffffff
+
+struct fastrpc_ioctl_dspsignal {
+	__u32 req;		/* enum fastrpc_dspsignal_req */
+	__u32 signal_id;	/* 0 .. 1023 */
+	__u32 timeout_usec;	/* WAIT; flags (0) for CREATE */
+	__u32 reserved;
 };
 
 #endif /* __QCOM_FASTRPC_H__ */
