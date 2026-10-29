@@ -1463,7 +1463,8 @@ static struct snd_soc_dai_driver wsa883x_dais[] = {
 		.name = "VI",
 		.capture = {
 			.stream_name = "VI Capture",
-			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_48000,
+			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_24000 |
+				 SNDRV_PCM_RATE_48000,
 			.formats = WSA883X_FORMATS,
 			.rate_min = 8000,
 			.rate_max = 48000,

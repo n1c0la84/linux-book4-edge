@@ -1384,7 +1384,8 @@ static struct snd_soc_dai_driver wsa_macro_dai[] = {
 		.id = WSA_MACRO_AIF_VI,
 		.capture = {
 			.stream_name = "WSA_AIF_VI Capture",
-			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_48000,
+			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_24000 |
+				 SNDRV_PCM_RATE_48000,
 			.formats = WSA_MACRO_RX_FORMATS,
 			.rate_max = 48000,
 			.rate_min = 8000,
