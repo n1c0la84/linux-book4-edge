@@ -27,8 +27,8 @@
 			link-name = "WSA Playback";
 
 			codec {
-				sound-dai = <&left_spkr>, <&swr0 0>, <&lpass_wsamacro 0>,
-					    <&right_spkr>, <&swr3 0>, <&lpass_wsa2macro 0>;
+				sound-dai = <&left_spkr 0>, <&swr0 0>, <&lpass_wsamacro 0>,
+					    <&right_spkr 0>, <&swr3 0>, <&lpass_wsa2macro 0>;
 			};
 
 			cpu {
@@ -369,11 +369,12 @@
 		compatible = "sdw10217020200";
 		reg = <0 2>;
 		reset-gpios = <&lpass_tlmm 12 GPIO_ACTIVE_LOW>;
-		#sound-dai-cells = <0>;
+		#sound-dai-cells = <1>;
 		#thermal-sensor-cells = <0>;
 		sound-name-prefix = "SpkrLeft";
 		vdd-supply = <&vreg_l15b_1p8>;
-		qcom,port-mapping = <1 2 3 7>;
+		/* DAC, COMP, BOOST, VISENSE (a master input port, for VI feedback) */
+		qcom,port-mapping = <1 2 3 10>;
 	};
 };
 
@@ -387,11 +388,12 @@
 		compatible = "sdw10217020200";
 		reg = <0 2>;
 		reset-gpios = <&lpass_tlmm 13 GPIO_ACTIVE_LOW>;
-		#sound-dai-cells = <0>;
+		#sound-dai-cells = <1>;
 		#thermal-sensor-cells = <0>;
 		sound-name-prefix = "SpkrRight";
 		vdd-supply = <&vreg_l15b_1p8>;
-		qcom,port-mapping = <1 2 3 7>;
+		/* DAC, COMP, BOOST, VISENSE (a master input port, for VI feedback) */
+		qcom,port-mapping = <1 2 3 10>;
 	};
 };
 

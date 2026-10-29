@@ -98,8 +98,38 @@
 };
 
 &{/sound/wsa-dai-link/codec} {
-	sound-dai = <&left_spkr>, <&right_tweeter>, <&swr0 0>, <&lpass_wsamacro 0>,
-		    <&right_spkr>, <&left_tweeter>, <&swr3 0>, <&lpass_wsa2macro 0>;
+	sound-dai = <&left_spkr 0>, <&right_tweeter 0>, <&swr0 0>, <&lpass_wsamacro 0>,
+		    <&right_spkr 0>, <&left_tweeter 0>, <&swr3 0>, <&lpass_wsa2macro 0>;
+};
+
+/*
+ * VI (voltage and current) feedback from the four amplifiers, for speaker
+ * protection. Each bus brings back two amps' VISENSE ports on its two VI
+ * input ports (10, 11) through the macro's VI interface; both macros feed one
+ * DSP codec DMA port, as in Windows' graph (where the DSP side uses both WSA
+ * interfaces). Layout from Qualcomm's glymur-crd link (kernel-topics PR #2104).
+ */
+&{/sound} {
+	vi-feedback-dai-link {
+		link-name = "CODEC_DMA-LPAIF_WSA-TX-0";
+
+		cpu {
+			sound-dai = <&q6apmbedai WSA_CODEC_DMA_TX_0>;
+		};
+
+		codec {
+			sound-dai = <&left_spkr 1>, <&right_tweeter 1>,
+				    <&swr0 9>, <&swr0 10>,
+				    <&lpass_wsamacro 2>,
+				    <&right_spkr 1>, <&left_tweeter 1>,
+				    <&swr3 9>, <&swr3 10>,
+				    <&lpass_wsa2macro 2>;
+		};
+
+		platform {
+			sound-dai = <&q6apm>;
+		};
+	};
 };
 
 &i2c13 {
@@ -179,11 +209,11 @@
 		compatible = "sdw10217020200";
 		reg = <0 1>;
 		reset-gpios = <&lpass_tlmm 12 GPIO_ACTIVE_LOW>;
-		#sound-dai-cells = <0>;
+		#sound-dai-cells = <1>;
 		#thermal-sensor-cells = <0>;
 		sound-name-prefix = "TweeterRight";
 		vdd-supply = <&vreg_l15b_1p8>;
-		qcom,port-mapping = <4 5 6 7>;
+		qcom,port-mapping = <4 5 6 11>;
 	};
 };
 
@@ -193,11 +223,11 @@
 		compatible = "sdw10217020200";
 		reg = <0 1>;
 		reset-gpios = <&lpass_tlmm 13 GPIO_ACTIVE_LOW>;
-		#sound-dai-cells = <0>;
+		#sound-dai-cells = <1>;
 		#thermal-sensor-cells = <0>;
 		sound-name-prefix = "TweeterLeft";
 		vdd-supply = <&vreg_l15b_1p8>;
-		qcom,port-mapping = <4 5 6 7>;
+		qcom,port-mapping = <4 5 6 11>;
 	};
 };
 
