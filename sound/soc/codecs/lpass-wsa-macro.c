@@ -2579,6 +2579,17 @@ static int wsa_macro_component_probe(struct snd_soc_component *comp)
 
 	wsa_macro_set_spkr_mode(comp, WSA_MACRO_SPKR_MODE_1);
 
+	/*
+	 * Speaker protection (VI) paths, as Qualcomm's downstream drivers
+	 * initialise them (bolero and lpass-cdc wsa-macro reg_init): without
+	 * these the VI feedback DMA only ever carries a fill pattern.
+	 */
+	snd_soc_component_update_bits(comp, CDC_WSA_TOP_TOP_CFG1, 0x03, 0x03);
+	snd_soc_component_update_bits(comp, CDC_WSA_TX0_SPKR_PROT_PATH_CFG0, 0x01, 0x01);
+	snd_soc_component_update_bits(comp, CDC_WSA_TX1_SPKR_PROT_PATH_CFG0, 0x01, 0x01);
+	snd_soc_component_update_bits(comp, CDC_WSA_TX2_SPKR_PROT_PATH_CFG0, 0x01, 0x01);
+	snd_soc_component_update_bits(comp, CDC_WSA_TX3_SPKR_PROT_PATH_CFG0, 0x01, 0x01);
+
 	switch (wsa->codec_version) {
 	case LPASS_CODEC_VERSION_1_0:
 	case LPASS_CODEC_VERSION_1_1:
