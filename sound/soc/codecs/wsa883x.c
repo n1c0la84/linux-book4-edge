@@ -999,7 +999,8 @@ static const struct regmap_config wsa883x_regmap_config = {
 
 static const struct reg_sequence reg_init[] = {
 	{WSA883X_PA_FSM_BYP, 0x00},
-	{WSA883X_ADC_6, 0x02},
+	{WSA883X_ISENSE2, 0x40},
+	{WSA883X_ADC_6, 0x0A},
 	{WSA883X_CDC_SPK_DSM_A2_0, 0x0A},
 	{WSA883X_CDC_SPK_DSM_A2_1, 0x08},
 	{WSA883X_CDC_SPK_DSM_A3_0, 0xF3},
@@ -1038,7 +1039,6 @@ static const struct reg_sequence reg_init[] = {
 	{WSA883X_OTP_REG_3, 0xC9},
 	{WSA883X_OTP_REG_4, 0x40},
 	{WSA883X_TAGC_CTL, 0x1B},
-	{WSA883X_ADC_2, 0x00},
 	{WSA883X_ADC_7, 0x85},
 	{WSA883X_ADC_7, 0x87},
 	{WSA883X_CKWD_CTL_0, 0x14},
