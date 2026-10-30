@@ -25,6 +25,8 @@
 #include <sound/soc.h>
 #include <sound/tlv.h>
 
+#define WSA883X_SCP_HOST_CLK_DIV2_CTL_BANK(bank) (0xe0 + 0x10 * (bank))
+
 #define WSA883X_BASE                    0x3000
 #define WSA883X_ANA_BG_TSADC_BASE       (WSA883X_BASE + 0x00000001)
 #define WSA883X_REF_CTRL                (WSA883X_ANA_BG_TSADC_BASE + 0x0000)
@@ -1130,8 +1132,19 @@ static int wsa883x_port_prep(struct sdw_slave *slave,
 	return 0;
 }
 
+/* VI clocking experiment: mirror the vendor master's banked divider write.
+ * WSA8835 support/necessity is unconfirmed; use only in the el2-spk test.
+ */
+static int wsa883x_bus_config(struct sdw_slave *slave,
+			    struct sdw_bus_params *params)
+{
+	return sdw_write(slave,
+			 WSA883X_SCP_HOST_CLK_DIV2_CTL_BANK(params->next_bank), 0x01);
+}
+
 static const struct sdw_slave_ops wsa883x_slave_ops = {
 	.update_status = wsa883x_update_status,
+	.bus_config = wsa883x_bus_config,
 	.port_prep = wsa883x_port_prep,
 };
 
