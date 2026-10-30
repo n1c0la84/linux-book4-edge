@@ -2544,6 +2544,12 @@ static int wsa_swrm_clock(struct wsa_macro *wsa, bool enable)
 				   CDC_WSA_SWR_CLK_EN_MASK,
 				   CDC_WSA_SWR_CLK_ENABLE);
 
+		/* VI A/B experiment: mirror lpass-cdc-wsa-macro.c's
+		 * wsa_swrm_clock mask/value. Field meaning is not documented.
+		 */
+		regmap_update_bits(regmap, CDC_WSA_CLK_RST_CTRL_SWR_CONTROL,
+				   0x1c, 0x0c);
+
 	} else {
 		regmap_update_bits(regmap, CDC_WSA_CLK_RST_CTRL_SWR_CONTROL,
 				   CDC_WSA_SWR_CLK_EN_MASK, 0);
