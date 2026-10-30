@@ -47,15 +47,16 @@ static int x1e80100_snd_init(struct snd_soc_pcm_runtime *rtd)
 		 * TEST (el2-spk, Galaxy Book4 Edge): PA Volume 0..14 is one
 		 * flat gain step on WSA883x (measured: 3 and 6 give identical
 		 * output), so the cap of 6 never limited anything. Allow up to
-		 * 20 (TLV +4.5 dB) for measured, step-checked tests; UCM still
-		 * sets the controls to 3/6 at boot.
+		 * 23 (TLV +9 dB, +12 dB over the flat floor: about where the
+		 * Windows driver's DRE mode measured) for measured, step-checked
+		 * tests; UCM still sets the controls to 3/6 at boot.
 		 */
-		snd_soc_limit_volume(card, "SpkrLeft PA Volume", 20);
-		snd_soc_limit_volume(card, "SpkrRight PA Volume", 20);
-		snd_soc_limit_volume(card, "WooferLeft PA Volume", 20);
-		snd_soc_limit_volume(card, "TweeterLeft PA Volume", 20);
-		snd_soc_limit_volume(card, "WooferRight PA Volume", 20);
-		snd_soc_limit_volume(card, "TweeterRight PA Volume", 20);
+		snd_soc_limit_volume(card, "SpkrLeft PA Volume", 23);
+		snd_soc_limit_volume(card, "SpkrRight PA Volume", 23);
+		snd_soc_limit_volume(card, "WooferLeft PA Volume", 23);
+		snd_soc_limit_volume(card, "TweeterLeft PA Volume", 23);
+		snd_soc_limit_volume(card, "WooferRight PA Volume", 23);
+		snd_soc_limit_volume(card, "TweeterRight PA Volume", 23);
 		break;
 	case DISPLAY_PORT_RX_0:
 		dp_pcm_id = 0;
