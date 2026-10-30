@@ -489,7 +489,6 @@ struct wsa883x_priv {
 	struct mutex sp_lock;
 	unsigned int temperature;
 	bool pa_on;
-	bool win_regs;		/* win_dre test: Windows' values applied */
 };
 
 enum {
@@ -1423,46 +1422,6 @@ static int wsa883x_set_sdw_stream(struct snd_soc_dai *dai,
 	return 0;
 }
 
-/*
- * TEST (el2-spk): Qualcomm's downstream driver sets DRE_CTL_1 bit 0 (gain
- * from CSR) during PA start-up and clears it ~3 ms after enabling the PA,
- * leaving the gain to DRE; upstream keeps it set. Read at every unmute.
- */
-static bool dre_auto;
-module_param(dre_auto, bool, 0644);
-MODULE_PARM_DESC(dre_auto, "clear DRE_CTL_1 gain-from-CSR 3 ms after PA enable, as downstream (test)");
-
-/*
- * TEST (el2-spk): what the Windows driver (qcaucd8380.sys) does instead: it
- * never writes DRE_CTL_1, so the gain-from-CSR bit stays at its reset 0 and
- * DRE runs from the start, and its init differs from reg_init[] in these
- * boost / AGC / watchdog registers. win_dre applies them before PA enable
- * and does not set the bit; win_dre=0 puts upstream's values back. Read at
- * every unmute. DRE mode plays ~12 dB above the capped CSR gain.
- */
-static bool win_dre;
-module_param(win_dre, bool, 0644);
-MODULE_PARM_DESC(win_dre, "Windows-like DRE: never set gain-from-CSR, Windows boost/AGC values (test)");
-
-static const struct reg_sequence wsa883x_win_regs[] = {
-	{ WSA883X_CURRENT_LIMIT, 0xAC },
-	{ WSA883X_EN_CTRL, 0x45 },
-	{ WSA883X_VAGC_ATTN_LVL_1_2, 0x11 },
-	{ WSA883X_VAGC_ATTN_LVL_3, 0x02 },
-	{ WSA883X_GMAMP_SUP1, 0xC2 },
-	{ WSA883X_PDM_WD_CTL, 0x01 },
-};
-
-/* upstream's values for the same registers (reg_init[], reset defaults) */
-static const struct reg_sequence wsa883x_up_regs[] = {
-	{ WSA883X_CURRENT_LIMIT, 0xC4 },
-	{ WSA883X_EN_CTRL, 0x44 },
-	{ WSA883X_VAGC_ATTN_LVL_1_2, 0x00 },
-	{ WSA883X_VAGC_ATTN_LVL_3, 0x01 },
-	{ WSA883X_GMAMP_SUP1, 0xE2 },
-	{ WSA883X_PDM_WD_CTL, 0x00 },
-};
-
 static int wsa883x_digital_mute(struct snd_soc_dai *dai, int mute, int stream)
 {
 	struct snd_soc_component *component = dai->component;
@@ -1474,27 +1433,13 @@ static int wsa883x_digital_mute(struct snd_soc_dai *dai, int mute, int stream)
 					      WSA883X_GLOBAL_PA_EN_MASK, 0);
 
 	} else {
-		struct wsa883x_priv *wsa883x = snd_soc_component_get_drvdata(component);
-
-		if (win_dre != wsa883x->win_regs) {
-			regmap_multi_reg_write(wsa883x->regmap,
-					       win_dre ? wsa883x_win_regs : wsa883x_up_regs,
-					       ARRAY_SIZE(wsa883x_win_regs));
-			wsa883x->win_regs = win_dre;
-		}
-		if (!win_dre)
-			snd_soc_component_write_field(component, WSA883X_DRE_CTL_1,
-						      WSA883X_DRE_GAIN_EN_MASK,
-						      WSA883X_DRE_GAIN_FROM_CSR);
+		snd_soc_component_write_field(component, WSA883X_DRE_CTL_1,
+					      WSA883X_DRE_GAIN_EN_MASK,
+					      WSA883X_DRE_GAIN_FROM_CSR);
 		snd_soc_component_write_field(component, WSA883X_PA_FSM_CTL,
 					      WSA883X_GLOBAL_PA_EN_MASK,
 					      WSA883X_GLOBAL_PA_ENABLE);
-		if (dre_auto) {
-			/* downstream: hand the gain back to DRE after PA start */
-			usleep_range(3000, 3100);
-			snd_soc_component_write_field(component, WSA883X_DRE_CTL_1,
-						      WSA883X_DRE_GAIN_EN_MASK, 0);
-		}
+
 	}
 
 	return 0;
