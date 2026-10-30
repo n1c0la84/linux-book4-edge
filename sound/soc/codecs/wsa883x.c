@@ -5,6 +5,7 @@
 
 #include <linux/bitops.h>
 #include <linux/device.h>
+#include <linux/delay.h>
 #include <linux/gpio/consumer.h>
 #include <linux/hwmon.h>
 #include <linux/init.h>
