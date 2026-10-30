@@ -1421,6 +1421,15 @@ static int wsa883x_set_sdw_stream(struct snd_soc_dai *dai,
 	return 0;
 }
 
+/*
+ * TEST (el2-spk): Qualcomm's downstream driver sets DRE_CTL_1 bit 0 (gain
+ * from CSR) during PA start-up and clears it ~3 ms after enabling the PA,
+ * leaving the gain to DRE; upstream keeps it set. Read at every unmute.
+ */
+static bool dre_auto;
+module_param(dre_auto, bool, 0644);
+MODULE_PARM_DESC(dre_auto, "clear DRE_CTL_1 gain-from-CSR 3 ms after PA enable, as downstream (test)");
+
 static int wsa883x_digital_mute(struct snd_soc_dai *dai, int mute, int stream)
 {
 	struct snd_soc_component *component = dai->component;
@@ -1438,7 +1447,12 @@ static int wsa883x_digital_mute(struct snd_soc_dai *dai, int mute, int stream)
 		snd_soc_component_write_field(component, WSA883X_PA_FSM_CTL,
 					      WSA883X_GLOBAL_PA_EN_MASK,
 					      WSA883X_GLOBAL_PA_ENABLE);
-
+		if (dre_auto) {
+			/* downstream: hand the gain back to DRE after PA start */
+			usleep_range(3000, 3100);
+			snd_soc_component_write_field(component, WSA883X_DRE_CTL_1,
+						      WSA883X_DRE_GAIN_EN_MASK, 0);
+		}
 	}
 
 	return 0;
