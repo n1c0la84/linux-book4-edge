@@ -35,20 +35,24 @@ static int x1e80100_snd_init(struct snd_soc_pcm_runtime *rtd)
 	case WSA_CODEC_DMA_RX_0:
 	case WSA_CODEC_DMA_RX_1:
 		/*
-		 * Set limit of -3 dB on Digital Volume and 0 dB on PA Volume
-		 * to reduce the risk of speaker damage until we have active
-		 * speaker protection in place.
+		 * Set limit of -3 dB on Digital Volume and a PA Volume cap to
+		 * reduce the risk of speaker damage until we have active
+		 * speaker protection in place. On the Galaxy Book4 Edge's
+		 * WSA883x, PA Volume 0..15 is one flat step (the old cap of 6
+		 * limited nothing) and 16..23 add 1.5 dB each: 23 is +12 dB,
+		 * about the Windows driver's output, measured clean with the
+		 * voice coils warming ~3 degC at full volume (VI feedback).
 		 */
 		snd_soc_limit_volume(card, "WSA WSA_RX0 Digital Volume", 81);
 		snd_soc_limit_volume(card, "WSA WSA_RX1 Digital Volume", 81);
 		snd_soc_limit_volume(card, "WSA2 WSA_RX0 Digital Volume", 81);
 		snd_soc_limit_volume(card, "WSA2 WSA_RX1 Digital Volume", 81);
-		snd_soc_limit_volume(card, "SpkrLeft PA Volume", 6);
-		snd_soc_limit_volume(card, "SpkrRight PA Volume", 6);
-		snd_soc_limit_volume(card, "WooferLeft PA Volume", 6);
-		snd_soc_limit_volume(card, "TweeterLeft PA Volume", 6);
-		snd_soc_limit_volume(card, "WooferRight PA Volume", 6);
-		snd_soc_limit_volume(card, "TweeterRight PA Volume", 6);
+		snd_soc_limit_volume(card, "SpkrLeft PA Volume", 23);
+		snd_soc_limit_volume(card, "SpkrRight PA Volume", 23);
+		snd_soc_limit_volume(card, "WooferLeft PA Volume", 23);
+		snd_soc_limit_volume(card, "TweeterLeft PA Volume", 23);
+		snd_soc_limit_volume(card, "WooferRight PA Volume", 23);
+		snd_soc_limit_volume(card, "TweeterRight PA Volume", 23);
 		break;
 	case DISPLAY_PORT_RX_0:
 		dp_pcm_id = 0;
