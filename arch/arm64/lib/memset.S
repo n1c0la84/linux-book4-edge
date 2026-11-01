@@ -147,7 +147,7 @@ SYM_FUNC_START_LOCAL(__pi_memset_generic)
 	b.lt	.Lnot_short /*count is at least  128 bytes*/
 
 	mrs	tmp1, dczid_el0
-	tbnz	tmp1, #4, .Lnot_short
+	b	.Lnot_short	/* X1 CL5 erratum: never execute DC ZVA. */
 	mov	tmp3w, #4
 	and	zva_len, tmp1w, #15	/* Safety: other bits reserved.  */
 	lsl	zva_len, tmp3w, zva_len
