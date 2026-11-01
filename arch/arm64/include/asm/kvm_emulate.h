@@ -114,6 +114,15 @@ static inline void vcpu_reset_hcr(struct kvm_vcpu *vcpu)
 	 */
 	if (!cpus_have_final_cap(ARM64_HAS_STAGE2_FWB))
 		vcpu->arch.hcr_el2 |= HCR_TVM;
+
+	/*
+	 * Qualcomm Oryon X1: DC ZVA after CL5 can reset the SoC, and a guest
+	 * runs it on the real CPUs. TDZ makes DCZID_EL0.DZP read as 1 at EL1
+	 * and EL0, so guests that check it stop using DC ZVA; any DC ZVA
+	 * still issued traps and gets an UNDEF instead of reaching the CPU.
+	 */
+	if (cpus_have_final_cap(ARM64_WORKAROUND_QCOM_ORYON_DC_ZVA))
+		vcpu->arch.hcr_el2 |= HCR_TDZ;
 }
 
 static inline unsigned long *vcpu_hcr(struct kvm_vcpu *vcpu)
