@@ -29,7 +29,7 @@ alternative_else_nop_endif
 .Lno_mops:
 #endif
 	mrs	x1, dczid_el0
-	tbnz	x1, #4, 2f	/* Branch if DC ZVA is prohibited */
+	b	2f		/* X1 CL5 erratum: never execute DC ZVA. */
 	and	w1, w1, #0xf
 	mov	x2, #4
 	lsl	x1, x2, x1

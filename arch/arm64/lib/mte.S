@@ -45,7 +45,7 @@ SYM_FUNC_END(mte_clear_page_tags)
 SYM_FUNC_START(mte_zero_clear_page_tags)
 	and	x0, x0, #(1 << MTE_TAG_SHIFT) - 1	// clear the tag
 	mrs	x1, dczid_el0
-	tbnz	x1, #4, 2f	// Branch if DC GZVA is prohibited
+	b	2f		// X1 CL5 erratum: never execute DC GZVA
 	and	w1, w1, #0xf
 	mov	x2, #4
 	lsl	x1, x2, x1
