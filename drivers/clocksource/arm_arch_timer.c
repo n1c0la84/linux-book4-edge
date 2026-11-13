@@ -983,11 +983,13 @@ static DEFINE_PER_CPU(unsigned long, saved_cntkctl);
  * that is every CPU: the system-level PSCI state is accepted and held,
  * but nothing is ever powered down.
  *
- * Give such a CPU the furthest deadline the clock event device supports
- * for as long as it is in the idle state. Interrupts are disabled from
- * CPU_PM_ENTER to CPU_PM_EXIT, so should the deadline ever be reached,
- * the timer is back in its previous state before the interrupt can be
- * taken.
+ * Give such a CPU a deadline half the clock event device's range away
+ * for as long as it is in the idle state. The full range does not work:
+ * the compare value then lies beyond the counter's width, and the
+ * hypervisor treats it like no deadline at all. Interrupts are disabled
+ * from CPU_PM_ENTER to CPU_PM_EXIT, so should the deadline ever be
+ * reached, the timer is back in its previous state before the interrupt
+ * can be taken.
  */
 static bool arch_timer_idle_deadline __ro_after_init;
 static DEFINE_PER_CPU(unsigned long, idle_deadline_saved_ctrl);
@@ -1008,7 +1010,7 @@ static void arch_timer_idle_deadline_enter(void)
 
 	__this_cpu_write(idle_deadline_saved_ctrl, ctrl);
 	__this_cpu_write(idle_deadline_armed, true);
-	set_next_event(ARCH_TIMER_VIRT_ACCESS, clk->max_delta_ticks, clk);
+	set_next_event(ARCH_TIMER_VIRT_ACCESS, clk->max_delta_ticks >> 1, clk);
 }
 
 static void arch_timer_idle_deadline_exit(void)
