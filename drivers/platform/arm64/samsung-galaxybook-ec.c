@@ -14,6 +14,7 @@
 #include <linux/errno.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
+#include <linux/jiffies.h>
 #include <linux/leds.h>
 #include <linux/math.h>
 #include <linux/module.h>
@@ -67,6 +68,8 @@ struct samsung_galaxybook_ec {
 	/* Serializes mailbox transactions and cached supply/profile state. */
 	struct mutex lock;
 	struct galaxybook_battery_data data;
+	/* jiffies of the last successful battery read, under lock. */
+	unsigned long refreshed;
 };
 
 static int galaxybook_ec_read_mailbox(struct i2c_client *client, u16 address,
@@ -401,6 +404,32 @@ static enum power_supply_property galaxybook_battery_properties[] = {
 	POWER_SUPPLY_PROP_MODEL_NAME,
 };
 
+/*
+ * The EC raises its interrupt for plug and unplug events only, not for
+ * charge, voltage or current changes, so the cached values go stale on
+ * battery and while charging. Re-read when they are older than a second,
+ * as the ACPI battery driver does with _BST. Reads do not send
+ * power_supply_changed(), so polling userspace cannot loop on uevents.
+ */
+static void galaxybook_battery_update(struct samsung_galaxybook_ec *ec)
+{
+	struct galaxybook_battery_data data = {};
+	int ret;
+
+	lockdep_assert_held(&ec->lock);
+
+	if (time_before(jiffies, ec->refreshed + HZ))
+		return;
+
+	ret = galaxybook_battery_refresh(ec, &data);
+	if (ret) {
+		dev_warn_ratelimited(&ec->client->dev, "EC read failed: %d\n", ret);
+		return;
+	}
+	ec->data = data;
+	ec->refreshed = jiffies;
+}
+
 static int galaxybook_battery_get_property(struct power_supply *psy,
 					   enum power_supply_property prop,
 					   union power_supply_propval *val)
@@ -410,6 +439,7 @@ static int galaxybook_battery_get_property(struct power_supply *psy,
 	int value;
 
 	guard(mutex)(&ec->lock);
+	galaxybook_battery_update(ec);
 
 	switch (prop) {
 	case POWER_SUPPLY_PROP_STATUS:
@@ -470,6 +500,7 @@ static int galaxybook_ac_get_property(struct power_supply *psy,
 	struct samsung_galaxybook_ec *ec = power_supply_get_drvdata(psy);
 
 	guard(mutex)(&ec->lock);
+	galaxybook_battery_update(ec);
 	switch (prop) {
 	case POWER_SUPPLY_PROP_ONLINE:
 		val->intval = ec->data.ac_online;
@@ -663,6 +694,7 @@ static irqreturn_t galaxybook_ec_irq_thread(int irq, void *ptr)
 		} else {
 			changed = memcmp(&ec->data, &data, sizeof(data));
 			ec->data = data;
+			ec->refreshed = jiffies;
 		}
 	}
 
@@ -700,6 +732,7 @@ static int samsung_galaxybook_ec_probe(struct i2c_client *client)
 	ret = galaxybook_battery_refresh(ec, &ec->data);
 	if (ret)
 		return dev_err_probe(&client->dev, ret, "failed to read EC battery\n");
+	ec->refreshed = jiffies;
 
 	cfg.drv_data = ec;
 	cfg.fwnode = dev_fwnode(&client->dev);
