@@ -200,3 +200,19 @@
 		qcom,port-mapping = <4 5 6 7>;
 	};
 };
+
+/* Fingerprint reader (EgisTec 1c7a:05a1) on usb_2. */
+&usb_2 {
+	dr_mode = "host";
+
+	status = "okay";
+};
+
+&usb_2_hsphy {
+	vdd-supply = <&vreg_l2e_0p8>;
+	vdda12-supply = <&vreg_l3e_1p2>;
+
+	phys = <&eusb6_repeater>;
+
+	status = "okay";
+};
