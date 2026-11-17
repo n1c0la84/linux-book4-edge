@@ -91,6 +91,7 @@ struct qcom_pas {
 	int crash_reason_smem;
 	unsigned int smem_host_id;
 	bool decrypt_shutdown;
+	bool broken_reset;
 	const char *info_name;
 
 	const struct firmware *firmware;
@@ -280,6 +281,13 @@ static int qcom_pas_map_carveout(struct rproc *rproc, phys_addr_t mem_phys, size
 static int qcom_pas_start(struct rproc *rproc)
 {
 	struct qcom_pas *pas = rproc->priv;
+
+	/*
+	 * Without the hypervisor (Linux at EL2) the reset sequence is gone: the
+	 * DSP can only be attached to, as the boot firmware left it running.
+	 */
+	if (pas->broken_reset)
+		return -EOPNOTSUPP;
 	int ret;
 
 	ret = qcom_q6v5_prepare(&pas->q6v5);
@@ -930,6 +938,16 @@ static int qcom_pas_probe(struct platform_device *pdev)
 
 	if (desc->early_boot)
 		pas->rproc->state = RPROC_DETACHED;
+
+	pas->broken_reset = device_property_read_bool(&pdev->dev, "qcom,broken-reset");
+	if (pas->broken_reset && !desc->early_boot) {
+		qcom_q6v5_read_smp2p_state(&pas->q6v5);
+		rproc->recovery_disabled = true;
+		if (pas->rproc->state != RPROC_DETACHED) {
+			dev_warn(pas->dev, "reset broken and not running at boot: left offline\n");
+			rproc->auto_boot = false;
+		}
+	}
 
 	ret = rproc_add(rproc);
 	if (ret)
