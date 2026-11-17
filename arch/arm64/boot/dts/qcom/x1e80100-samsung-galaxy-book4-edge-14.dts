@@ -154,10 +154,10 @@
 };
 
 &{/sound} {
-	audio-routing = "SpkrRight IN", "WSA WSA_SPK1 OUT",
-			"TweeterRight IN", "WSA WSA_SPK2 OUT",
-			"SpkrLeft IN", "WSA2 WSA_SPK1 OUT",
-			"TweeterLeft IN", "WSA2 WSA_SPK2 OUT",
+	audio-routing = "SpkrLeft IN", "WSA WSA_SPK1 OUT",
+			"TweeterLeft IN", "WSA WSA_SPK2 OUT",
+			"SpkrRight IN", "WSA2 WSA_SPK1 OUT",
+			"TweeterRight IN", "WSA2 WSA_SPK2 OUT",
 			"IN1_HPHL", "HPHL_OUT",
 			"IN2_HPHR", "HPHR_OUT",
 			"AMIC2", "MIC BIAS2",
@@ -169,33 +169,33 @@
 };
 
 &{/sound/wsa-dai-link/codec} {
-	sound-dai = <&left_spkr>, <&right_tweeter>, <&swr0 0>, <&lpass_wsamacro 0>,
-		    <&right_spkr>, <&left_tweeter>, <&swr3 0>, <&lpass_wsa2macro 0>;
+	sound-dai = <&left_spkr>, <&left_tweeter>, <&swr0 0>, <&lpass_wsamacro 0>,
+		    <&right_spkr>, <&right_tweeter>, <&swr3 0>, <&lpass_wsa2macro 0>;
 };
 
 &swr0 {
-	/* WSA8835 tweeter, right side; macro output SPK2 (RX1) */
-	right_tweeter: speaker@0,1 {
+	/* WSA8835 tweeter, left side (swr0 is the left side); macro output SPK2 (RX1) */
+	left_tweeter: speaker@0,1 {
 		compatible = "sdw10217020200";
 		reg = <0 1>;
 		reset-gpios = <&lpass_tlmm 12 GPIO_ACTIVE_LOW>;
 		#sound-dai-cells = <0>;
 		#thermal-sensor-cells = <0>;
-		sound-name-prefix = "TweeterRight";
+		sound-name-prefix = "TweeterLeft";
 		vdd-supply = <&vreg_l15b_1p8>;
 		qcom,port-mapping = <4 5 6 7>;
 	};
 };
 
 &swr3 {
-	/* WSA8835 tweeter, left side; macro output SPK2 (RX1) */
-	left_tweeter: speaker@0,1 {
+	/* WSA8835 tweeter, right side (swr3 is the right side); macro output SPK2 (RX1) */
+	right_tweeter: speaker@0,1 {
 		compatible = "sdw10217020200";
 		reg = <0 1>;
 		reset-gpios = <&lpass_tlmm 13 GPIO_ACTIVE_LOW>;
 		#sound-dai-cells = <0>;
 		#thermal-sensor-cells = <0>;
-		sound-name-prefix = "TweeterLeft";
+		sound-name-prefix = "TweeterRight";
 		vdd-supply = <&vreg_l15b_1p8>;
 		qcom,port-mapping = <4 5 6 7>;
 	};
@@ -215,20 +215,6 @@
 	phys = <&eusb6_repeater>;
 
 	status = "okay";
-};
-
-/*
- * The woofer names in the shared dtsi are swapped on this model: the
- * amplifier on SoundWire 0 (WSA macro) drives the right woofer, the one on
- * SoundWire 3 (WSA2 macro) the left woofer, next to the tweeters of the same
- * side. Name them by side, like the tweeters. The labels stay as in the dtsi.
- */
-&left_spkr {
-	sound-name-prefix = "SpkrRight";
-};
-
-&right_spkr {
-	sound-name-prefix = "SpkrLeft";
 };
 
 /*
