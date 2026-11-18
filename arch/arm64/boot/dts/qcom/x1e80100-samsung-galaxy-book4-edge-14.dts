@@ -224,3 +224,13 @@
 &eusb5_repeater {
 	status = "disabled";
 };
+
+/*
+ * With the CoreSight CTCU probed, the SoC never reaches CX collapse in
+ * s2idle on this laptop (cxsd/ddr 0 % against 97 % with only this node
+ * disabled, 18 November): the CTCU keeps the QDSS clock it gets from
+ * aoss_qmp voted on. Nothing here uses the ETR it controls.
+ */
+&{/soc@0/ctcu@10001000} {
+	status = "disabled";
+};
