@@ -21,6 +21,7 @@
 #include <linux/pm.h>
 #include <linux/power_supply.h>
 #include <linux/slab.h>
+#include <linux/suspend.h>
 #include <linux/unaligned.h>
 #include <linux/usb/pd.h>
 #include <linux/usb/pd_vdo.h>
@@ -109,6 +110,8 @@ struct samsung_emuec {
 	u8 dp_pin;
 	u32 requested_rdo;
 	u32 requested_pdo;
+	struct notifier_block pm_nb;
+	bool quiesced;
 };
 
 static int samsung_emuec_read(struct samsung_emuec *pdic, u16 reg,
@@ -786,6 +789,10 @@ static void samsung_emuec_sync(struct work_struct *work)
 
 	guard(mutex)(&pdic->lock);
 
+	/* System sleep in progress: leave the port as it is, resync afterwards. */
+	if (pdic->quiesced)
+		return;
+
 	ret = samsung_emuec_read(pdic, S2MM006_REG_BC_STATUS, &bc, sizeof(bc));
 	if (ret)
 		return;
@@ -967,6 +974,48 @@ static irqreturn_t samsung_emuec_irq_thread(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Quiesce event handling across system sleep, from before any device
+ * suspends until every device has resumed, then resync once. Unplugging a
+ * charger during s2idle resets the machine during the kernel's resume when
+ * the port's events are handled while the rest of the system is still
+ * resuming (not with the driver unbound); a device-level suspend/resume
+ * pair re-enables the interrupt too early.
+ */
+static int samsung_emuec_pm_notify(struct notifier_block *nb,
+				   unsigned long action, void *data)
+{
+	struct samsung_emuec *pdic = container_of(nb, struct samsung_emuec, pm_nb);
+	struct device *dev = &pdic->client->dev;
+
+	switch (action) {
+	case PM_SUSPEND_PREPARE:
+		scoped_guard(mutex, &pdic->lock)
+			pdic->quiesced = true;
+		/* Leave controller events latched; waits for a running handler. */
+		disable_irq(pdic->client->irq);
+		cancel_delayed_work_sync(&pdic->work);
+		flush_work(&pdic->hpd_work);
+		dev_info(dev, "pm: quiesced (attached=%d)\n", pdic->attached);
+		break;
+	case PM_POST_SUSPEND:
+		if (!pdic->quiesced)
+			break;
+		scoped_guard(mutex, &pdic->lock) {
+			pdic->quiesced = false;
+			pdic->requested_rdo = 0;
+			pdic->requested_pdo = 0;
+			pdic->attempted_mode = SAMSUNG_EMUEC_MODE_NONE;
+		}
+		enable_irq(pdic->client->irq);
+		mod_delayed_work(system_dfl_wq, &pdic->work, 0);
+		dev_info(dev, "pm: resumed, resync\n");
+		break;
+	}
+
+	return NOTIFY_DONE;
+}
+
 static int samsung_emuec_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
@@ -1094,6 +1143,11 @@ static int samsung_emuec_probe(struct i2c_client *client)
 	if (ret)
 		goto err_pd;
 
+	pdic->pm_nb.notifier_call = samsung_emuec_pm_notify;
+	ret = register_pm_notifier(&pdic->pm_nb);
+	if (ret)
+		goto err_pd;
+
 	mod_delayed_work(system_dfl_wq, &pdic->work, 0);
 	return 0;
 
@@ -1117,6 +1171,10 @@ static void samsung_emuec_remove(struct i2c_client *client)
 {
 	struct samsung_emuec *pdic = i2c_get_clientdata(client);
 
+	unregister_pm_notifier(&pdic->pm_nb);
+	if (pdic->quiesced)
+		enable_irq(client->irq);
+
 	devm_free_irq(&client->dev, client->irq, pdic);
 	cancel_delayed_work_sync(&pdic->work);
 
@@ -1133,36 +1191,6 @@ static void samsung_emuec_remove(struct i2c_client *client)
 	of_node_put(pdic->connector);
 }
 
-static int samsung_emuec_suspend(struct device *dev)
-{
-	struct samsung_emuec *pdic = dev_get_drvdata(dev);
-
-	/* Leave controller events latched until its I2C bus has resumed. */
-	disable_irq(pdic->client->irq);
-	cancel_delayed_work_sync(&pdic->work);
-	flush_work(&pdic->hpd_work);
-
-	return 0;
-}
-
-static int samsung_emuec_resume(struct device *dev)
-{
-	struct samsung_emuec *pdic = dev_get_drvdata(dev);
-
-	scoped_guard(mutex, &pdic->lock) {
-		pdic->requested_rdo = 0;
-		pdic->requested_pdo = 0;
-		pdic->attempted_mode = SAMSUNG_EMUEC_MODE_NONE;
-	}
-	enable_irq(pdic->client->irq);
-	mod_delayed_work(system_dfl_wq, &pdic->work, 0);
-
-	return 0;
-}
-
-static DEFINE_SIMPLE_DEV_PM_OPS(samsung_emuec_pm_ops, samsung_emuec_suspend,
-			      samsung_emuec_resume);
-
 static const struct of_device_id samsung_emuec_of_match[] = {
 	{ .compatible = "samsung,s2mm006" },
 	{ }
@@ -1173,7 +1201,6 @@ static struct i2c_driver samsung_emuec_driver = {
 	.driver = {
 		.name = "samsung-emuec",
 		.of_match_table = samsung_emuec_of_match,
-		.pm = pm_sleep_ptr(&samsung_emuec_pm_ops),
 	},
 	.probe = samsung_emuec_probe,
 	.remove = samsung_emuec_remove,
